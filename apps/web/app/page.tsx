@@ -37,8 +37,10 @@ export default function HomePage() {
           <h1 className="font-display text-3xl">Configuration needed</h1>
           <p className="mt-4 text-[var(--muted)]">{initError}</p>
           <p className="mt-4 text-sm text-[var(--muted)]">
-            Add the keys to <code>apps/web/.env.local</code> locally and to the Vercel
-            project dashboard for production.
+            On Vercel, set both variables in{" "}
+            <code>Project Settings -&gt; Environment Variables</code>, then redeploy the
+            latest deployment. The local <code>apps/web/.env.local</code> file only affects
+            your machine.
           </p>
         </div>
       </Shell>
