@@ -13,7 +13,8 @@ export function getSupabaseBrowserClient(): SupabaseClient {
   if (!url || !anonKey) {
     throw new Error(
       "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
-        "Set them in apps/web/.env.local (and in the Vercel project settings).",
+        "For local development, set them in apps/web/.env.local. " +
+        "For Vercel, add them in Project Settings -> Environment Variables and redeploy.",
     );
   }
 
