@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.2.3",
     "@supabase/supabase-js": "^2.49.8",
     "next": "^15.3.1",
     "react": "^19.1.0",
@@ -24,4 +25,3 @@
     "typescript": "^5.8.3"
   }
 }
-

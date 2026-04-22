@@ -14,7 +14,7 @@ create type public.spread_type as enum (
 );
 
 create table if not exists public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
+  id text primary key,
   email text unique,
   display_name text,
   city text not null,
@@ -69,7 +69,7 @@ create table if not exists public.tarot_cards (
 
 create table if not exists public.readings (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles (id) on delete cascade,
+  user_id text not null references public.profiles (id) on delete cascade,
   spread_type public.spread_type not null,
   cards_drawn jsonb not null,
   context_history_id uuid references public.context_history (id) on delete set null,
@@ -82,7 +82,7 @@ create table if not exists public.readings (
 
 create table if not exists public.saved_readings (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles (id) on delete cascade,
+  user_id text not null references public.profiles (id) on delete cascade,
   reading_id uuid not null references public.readings (id) on delete cascade,
   created_at timestamptz not null default now(),
   unique (user_id, reading_id)
@@ -116,47 +116,6 @@ before update on public.live_context
 for each row
 execute function public.set_updated_at();
 
-create or replace function public.handle_new_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  insert into public.profiles (
-    id,
-    email,
-    display_name,
-    city,
-    city_key,
-    zodiac_sign,
-    reading_style
-  )
-  values (
-    new.id,
-    new.email,
-    coalesce(new.raw_user_meta_data ->> 'display_name', ''),
-    coalesce(new.raw_user_meta_data ->> 'city', 'Chicago'),
-    lower(replace(coalesce(new.raw_user_meta_data ->> 'city', 'Chicago'), ' ', '-')),
-    coalesce(new.raw_user_meta_data ->> 'zodiac_sign', 'aries'),
-    case
-      when new.raw_user_meta_data ->> 'reading_style' in ('gentle', 'direct', 'spiritual', 'analytical')
-        then (new.raw_user_meta_data ->> 'reading_style')::public.reading_style
-      else 'gentle'
-    end
-  )
-  on conflict (id) do nothing;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-after insert on auth.users
-for each row
-execute function public.handle_new_user();
-
 alter table public.profiles enable row level security;
 alter table public.live_context enable row level security;
 alter table public.context_history enable row level security;
@@ -168,79 +127,86 @@ drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own"
 on public.profiles
 for select
-to authenticated
-using (auth.uid() = id);
+to anon, authenticated
+using (true);
 
 drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own"
 on public.profiles
 for update
-to authenticated
-using (auth.uid() = id)
-with check (auth.uid() = id);
+to anon, authenticated
+using (true)
+with check (true);
 
 drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own"
 on public.profiles
 for insert
-to authenticated
-with check (auth.uid() = id);
+to anon, authenticated
+with check (true);
 
 drop policy if exists "live_context_read_authenticated" on public.live_context;
-create policy "live_context_read_authenticated"
+create policy "live_context_read_all"
 on public.live_context
 for select
-to authenticated
+to anon, authenticated
 using (true);
 
 drop policy if exists "context_history_read_authenticated" on public.context_history;
-create policy "context_history_read_authenticated"
+create policy "context_history_read_all"
 on public.context_history
 for select
-to authenticated
+to anon, authenticated
 using (true);
 
+drop policy if exists "context_history_insert_all" on public.context_history;
+create policy "context_history_insert_all"
+on public.context_history
+for insert
+to anon, authenticated
+with check (true);
+
 drop policy if exists "tarot_cards_read_authenticated" on public.tarot_cards;
-create policy "tarot_cards_read_authenticated"
+create policy "tarot_cards_read_all"
 on public.tarot_cards
 for select
-to authenticated
+to anon, authenticated
 using (true);
 
 drop policy if exists "readings_select_own" on public.readings;
 create policy "readings_select_own"
 on public.readings
 for select
-to authenticated
-using (auth.uid() = user_id);
+to anon, authenticated
+using (true);
 
 drop policy if exists "readings_insert_own" on public.readings;
 create policy "readings_insert_own"
 on public.readings
 for insert
-to authenticated
-with check (auth.uid() = user_id);
+to anon, authenticated
+with check (true);
 
 drop policy if exists "saved_readings_select_own" on public.saved_readings;
 create policy "saved_readings_select_own"
 on public.saved_readings
 for select
-to authenticated
-using (auth.uid() = user_id);
+to anon, authenticated
+using (true);
 
 drop policy if exists "saved_readings_insert_own" on public.saved_readings;
 create policy "saved_readings_insert_own"
 on public.saved_readings
 for insert
-to authenticated
-with check (auth.uid() = user_id);
+to anon, authenticated
+with check (true);
 
 drop policy if exists "saved_readings_delete_own" on public.saved_readings;
 create policy "saved_readings_delete_own"
 on public.saved_readings
 for delete
-to authenticated
-using (auth.uid() = user_id);
+to anon, authenticated
+using (true);
 
 do $$
 begin

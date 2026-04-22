@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseBrowserClient } from "../lib/supabase-browser";
+import { useAuth, useUser, SignInButton, SignUpButton, SignOutButton } from "@clerk/nextjs";
+import { supabase } from "../lib/supabase-browser";
 import {
   READING_STYLES,
   ZODIAC_SIGNS,
@@ -19,86 +19,25 @@ function slugifyCityKey(city: string): string {
 }
 
 export default function HomePage() {
-  const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
-  const [initError, setInitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      setSupabase(getSupabaseBrowserClient());
-    } catch (err) {
-      setInitError((err as Error).message);
-    }
-  }, []);
-
-  if (initError) {
-    return (
-      <Shell>
-        <div className="rounded-[1.5rem] border border-[var(--border)] bg-white/80 p-8 text-[var(--foreground)]">
-          <h1 className="font-display text-3xl">Configuration needed</h1>
-          <p className="mt-4 text-[var(--muted)]">{initError}</p>
-          <p className="mt-4 text-sm text-[var(--muted)]">
-            On Vercel, set both variables in{" "}
-            <code>Project Settings -&gt; Environment Variables</code>, then redeploy the
-            latest deployment. The local <code>apps/web/.env.local</code> file only affects
-            your machine.
-          </p>
-        </div>
-      </Shell>
-    );
-  }
-
-  if (!supabase) {
-    return (
-      <Shell>
-        <p className="text-[var(--muted)]">Loading…</p>
-      </Shell>
-    );
-  }
-
-  return <App supabase={supabase} />;
-}
-
-function App({ supabase }: { supabase: SupabaseClient }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loadingSession, setLoadingSession] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      setLoadingSession(false);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-    });
-    return () => {
-      active = false;
-      sub.subscription.unsubscribe();
-    };
-  }, [supabase]);
-
-  if (loadingSession) {
-    return (
-      <Shell>
-        <p className="text-[var(--muted)]">Loading session…</p>
-      </Shell>
-    );
-  }
-
-  if (!session) {
-    return (
-      <Shell>
-        <AuthForm supabase={supabase} />
-      </Shell>
-    );
-  }
-
   return (
     <Shell>
-      <Dashboard supabase={supabase} session={session} />
+      <AuthGate />
     </Shell>
   );
+}
+
+function AuthGate() {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+
+  if (!isLoaded) {
+    return <p className="text-[var(--muted)]">Loading session…</p>;
+  }
+
+  if (!isSignedIn || !userId) {
+    return <LandingAuth />;
+  }
+
+  return <Dashboard userId={userId} />;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -119,48 +58,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AuthForm({ supabase }: { supabase: SupabaseClient }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [city, setCity] = useState("Chicago");
-  const [zodiac, setZodiac] = useState<(typeof ZODIAC_SIGNS)[number]>("aries");
-  const [style, setStyle] = useState<ReadingStyle>("gentle");
-  const [message, setMessage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              city,
-              zodiac_sign: zodiac,
-              reading_style: style,
-            },
-          },
-        });
-        if (error) throw error;
-        setMessage(
-          "Account created. Check your inbox if email confirmation is required, then sign in.",
-        );
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-      }
-    } catch (err) {
-      setMessage((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
+function LandingAuth() {
   return (
     <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--panel)] p-8">
@@ -178,127 +76,129 @@ function AuthForm({ supabase }: { supabase: SupabaseClient }) {
           <li>• Immutable history for every reading</li>
         </ul>
       </section>
-      <section className="rounded-[2rem] border border-[var(--border)] bg-white/80 p-8">
-        <div className="mb-4 flex gap-2 text-sm">
-          <button
-            type="button"
-            onClick={() => setMode("signin")}
-            className={`rounded-full px-4 py-2 ${
-              mode === "signin"
-                ? "bg-ink text-white"
-                : "border border-[var(--border)]"
-            }`}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("signup")}
-            className={`rounded-full px-4 py-2 ${
-              mode === "signup"
-                ? "bg-ink text-white"
-                : "border border-[var(--border)]"
-            }`}
-          >
+      <section className="rounded-[2rem] border border-[var(--border)] bg-white/80 p-8 flex flex-col items-center justify-center gap-4">
+        <p className="text-sm text-[var(--muted)]">Sign in or create an account to begin.</p>
+        <SignInButton mode="modal">
+          <button className="w-full rounded-xl bg-ink py-3 text-white">Sign in</button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button className="w-full rounded-xl border border-[var(--border)] py-3">
             Sign up
           </button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+        </SignUpButton>
+      </section>
+    </div>
+  );
+}
+
+function ProfileSetup({
+  userId,
+  onComplete,
+}: {
+  userId: string;
+  onComplete: () => void;
+}) {
+  const { user } = useUser();
+  const [city, setCity] = useState("Chicago");
+  const [zodiac, setZodiac] = useState<(typeof ZODIAC_SIGNS)[number]>("aries");
+  const [style, setStyle] = useState<ReadingStyle>("gentle");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    const cityKey = slugifyCityKey(city);
+    const { error: insertError } = await supabase.from("profiles").insert({
+      id: userId,
+      email: user?.primaryEmailAddress?.emailAddress ?? null,
+      display_name: user?.fullName ?? "",
+      city,
+      city_key: cityKey,
+      zodiac_sign: zodiac,
+      reading_style: style,
+    });
+    if (insertError) {
+      setError(insertError.message);
+      setSubmitting(false);
+      return;
+    }
+    onComplete();
+  }
+
+  return (
+    <div className="mx-auto max-w-md">
+      <section className="rounded-[2rem] border border-[var(--border)] bg-white/80 p-8">
+        <h2 className="font-display text-2xl">Complete your profile</h2>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Set your preferences to personalize your tarot readings.
+        </p>
+        <form onSubmit={handleSubmit} className="mt-6 space-y-3 text-sm">
           <label className="block">
-            <span className="text-xs uppercase tracking-wider text-slateblue">Email</span>
+            <span className="text-xs uppercase tracking-wider text-slateblue">City</span>
             <input
               required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
               className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
             />
           </label>
           <label className="block">
-            <span className="text-xs uppercase tracking-wider text-slateblue">Password</span>
-            <input
-              required
-              minLength={6}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+            <span className="text-xs uppercase tracking-wider text-slateblue">
+              Zodiac sign
+            </span>
+            <select
+              value={zodiac}
+              onChange={(e) =>
+                setZodiac(e.target.value as (typeof ZODIAC_SIGNS)[number])
+              }
               className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
-            />
+            >
+              {ZODIAC_SIGNS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </label>
-          {mode === "signup" && (
-            <>
-              <label className="block">
-                <span className="text-xs uppercase tracking-wider text-slateblue">City</span>
-                <input
-                  required
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs uppercase tracking-wider text-slateblue">
-                  Zodiac sign
-                </span>
-                <select
-                  value={zodiac}
-                  onChange={(e) =>
-                    setZodiac(e.target.value as (typeof ZODIAC_SIGNS)[number])
-                  }
-                  className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
-                >
-                  {ZODIAC_SIGNS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs uppercase tracking-wider text-slateblue">
-                  Reading style
-                </span>
-                <select
-                  value={style}
-                  onChange={(e) => setStyle(e.target.value as ReadingStyle)}
-                  className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
-                >
-                  {READING_STYLES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
+          <label className="block">
+            <span className="text-xs uppercase tracking-wider text-slateblue">
+              Reading style
+            </span>
+            <select
+              value={style}
+              onChange={(e) => setStyle(e.target.value as ReadingStyle)}
+              className="mt-1 w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2"
+            >
+              {READING_STYLES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="submit"
             disabled={submitting}
             className="w-full rounded-xl bg-ink py-3 text-white disabled:opacity-60"
           >
-            {submitting ? "Working…" : mode === "signin" ? "Sign in" : "Create account"}
+            {submitting ? "Saving…" : "Save & continue"}
           </button>
-          {message && <p className="text-xs text-[var(--muted)]">{message}</p>}
+          {error && <p className="text-xs text-red-600">{error}</p>}
         </form>
       </section>
     </div>
   );
 }
 
-function Dashboard({
-  supabase,
-  session,
-}: {
-  supabase: SupabaseClient;
-  session: Session;
-}) {
+function Dashboard({ userId }: { userId: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [context, setContext] = useState<LiveContext | null>(null);
   const [deck, setDeck] = useState<TarotCard[]>([]);
   const [history, setHistory] = useState<Reading[]>([]);
   const [status, setStatus] = useState<string | null>(null);
-  const userId = session.user.id;
 
   const loadProfile = useCallback(async () => {
     const { data, error } = await supabase
@@ -308,10 +208,12 @@ function Dashboard({
       .maybeSingle();
     if (error) {
       setStatus(error.message);
+      setProfileLoading(false);
       return;
     }
     setProfile(data as Profile | null);
-  }, [supabase, userId]);
+    setProfileLoading(false);
+  }, [userId]);
 
   const loadContext = useCallback(
     async (cityKey: string) => {
@@ -322,13 +224,13 @@ function Dashboard({
         .maybeSingle();
       setContext((data as LiveContext | null) ?? null);
     },
-    [supabase],
+    [],
   );
 
   const loadDeck = useCallback(async () => {
     const { data } = await supabase.from("tarot_cards").select("*");
     setDeck((data as TarotCard[] | null) ?? []);
-  }, [supabase]);
+  }, []);
 
   const loadHistory = useCallback(async () => {
     const { data } = await supabase
@@ -338,7 +240,7 @@ function Dashboard({
       .order("created_at", { ascending: false })
       .limit(8);
     setHistory((data as Reading[] | null) ?? []);
-  }, [supabase, userId]);
+  }, [userId]);
 
   useEffect(() => {
     loadProfile();
@@ -368,7 +270,7 @@ function Dashboard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile, supabase, loadContext]);
+  }, [profile, loadContext]);
 
   const sortedDeck = useMemo(
     () => [...deck].sort((a, b) => a.card_name.localeCompare(b.card_name)),
@@ -443,59 +345,62 @@ function Dashboard({
     loadHistory();
   }
 
+  if (profileLoading) {
+    return <p className="text-[var(--muted)]">Loading profile…</p>;
+  }
+
+  if (!profile) {
+    return <ProfileSetup userId={userId} onComplete={loadProfile} />;
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
       <section className="rounded-[2rem] border border-[var(--border)] bg-[var(--panel)] p-8">
         <div className="flex items-center justify-between">
           <h1 className="font-display text-3xl">Your reading</h1>
-          <button
-            type="button"
-            onClick={() => supabase.auth.signOut()}
-            className="text-xs uppercase tracking-wider text-slateblue underline-offset-4 hover:underline"
-          >
-            Sign out
-          </button>
-        </div>
-        {!profile ? (
-          <p className="mt-6 text-[var(--muted)]">Loading profile…</p>
-        ) : (
-          <>
-            <p className="mt-3 text-sm text-[var(--muted)]">
-              Signed in as {profile.email}
-            </p>
+          <SignOutButton>
             <button
               type="button"
-              onClick={drawOnce}
-              className="mt-6 rounded-full bg-ink px-6 py-3 text-sm uppercase tracking-wider text-white"
+              className="text-xs uppercase tracking-wider text-slateblue underline-offset-4 hover:underline"
             >
-              Draw a card
+              Sign out
             </button>
-            {status && (
-              <p className="mt-4 text-xs text-[var(--muted)]">{status}</p>
-            )}
-            <div className="mt-8 space-y-4">
-              <h2 className="font-display text-2xl">Recent readings</h2>
-              {history.length === 0 && (
-                <p className="text-sm text-[var(--muted)]">
-                  No readings yet — draw your first card above.
-                </p>
-              )}
-              {history.map((r) => (
-                <article
-                  key={r.id}
-                  className="rounded-2xl border border-[var(--border)] bg-white/70 p-4"
-                >
-                  <p className="text-xs uppercase tracking-wider text-slateblue">
-                    {new Date(r.created_at).toLocaleString()} · {r.spread_type}
-                  </p>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-6">
-                    {r.reading_text}
-                  </p>
-                </article>
-              ))}
-            </div>
-          </>
+          </SignOutButton>
+        </div>
+        <p className="mt-3 text-sm text-[var(--muted)]">
+          Signed in as {profile.email}
+        </p>
+        <button
+          type="button"
+          onClick={drawOnce}
+          className="mt-6 rounded-full bg-ink px-6 py-3 text-sm uppercase tracking-wider text-white"
+        >
+          Draw a card
+        </button>
+        {status && (
+          <p className="mt-4 text-xs text-[var(--muted)]">{status}</p>
         )}
+        <div className="mt-8 space-y-4">
+          <h2 className="font-display text-2xl">Recent readings</h2>
+          {history.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">
+              No readings yet — draw your first card above.
+            </p>
+          )}
+          {history.map((r) => (
+            <article
+              key={r.id}
+              className="rounded-2xl border border-[var(--border)] bg-white/70 p-4"
+            >
+              <p className="text-xs uppercase tracking-wider text-slateblue">
+                {new Date(r.created_at).toLocaleString()} · {r.spread_type}
+              </p>
+              <p className="mt-2 whitespace-pre-line text-sm leading-6">
+                {r.reading_text}
+              </p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="space-y-6">
@@ -535,9 +440,7 @@ function Dashboard({
           )}
         </div>
 
-        {profile && (
-          <ProfileCard profile={profile} onSave={saveProfile} />
-        )}
+        <ProfileCard profile={profile} onSave={saveProfile} />
       </section>
     </div>
   );
